@@ -1,0 +1,79 @@
+name: Publish Cortex dashboard 2026-07-24
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-dashboard-20260724.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Replace generated dashboard sections
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          index = Path('index.html')
+          text = index.read_text(encoding='utf-8')
+          lines = text.splitlines()
+
+          replacements = [
+              ('    <header class="system-bar">', Path('.publish-20260724/header.html')),
+              ('      <!-- CORTEX_AUTO_FIELD_START -->', Path('.publish-20260724/field.html')),
+              ('      <section class="metrics"', Path('.publish-20260724/metrics.html')),
+              ('    <section class="section" id="pipeline"', Path('.publish-20260724/pipeline.html')),
+              ('    <section class="section" id="archives"', Path('.publish-20260724/archives.html')),
+              ('    <section class="section" id="output"', Path('.publish-20260724/output.html')),
+              ('    <section class="section" id="latest"', Path('.publish-20260724/latest.html')),
+              ('    <footer>', Path('.publish-20260724/footer.html')),
+          ]
+
+          for prefix, fragment_path in replacements:
+              matches = [i for i, line in enumerate(lines) if line.startswith(prefix)]
+              if len(matches) != 1:
+                  raise SystemExit(f'{prefix!r}: expected 1 line, found {len(matches)}')
+              fragment = fragment_path.read_text(encoding='utf-8').rstrip('\n')
+              if '\n' in fragment:
+                  raise SystemExit(f'{fragment_path}: fragment must be one line')
+              lines[matches[0]] = fragment
+
+          updated = '\n'.join(lines) + '\n'
+          required = [
+              '<meta name="robots" content="noindex, nofollow, noarchive" />',
+              '资产截至 2026-07-24',
+              'data-refreshed-at="2026-07-24T11:06:51+08:00"',
+              '<div class="num">568</div>',
+              '<div class="num">99</div>',
+              'Matt Pocock Skills 工作流案例精读.md',
+              'Claude Code Skills 生命周期与触发机制精读.md',
+          ]
+          missing = [item for item in required if item not in updated]
+          if missing:
+              raise SystemExit(f'missing required markers: {missing}')
+          if '资产截至 2026-07-23' in updated:
+              raise SystemExit('stale 2026-07-23 asset date remains')
+
+          index.write_text(updated, encoding='utf-8', newline='\n')
+          PY
+      - name: Validate and remove one-shot files
+        run: |
+          grep -q '资产截至 2026-07-24' index.html
+          grep -q 'Matt Pocock Skills 工作流案例精读.md' index.html
+          grep -q '<meta name="robots" content="noindex, nofollow, noarchive" />' index.html
+          rm -rf .publish-20260724
+          rm -f .github/workflows/publish-dashboard-20260724.yml
+          git diff --check
+      - name: Commit public dashboard
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Publish Cortex dashboard to 2026-07-24'
+          git push
